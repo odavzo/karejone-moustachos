@@ -66,13 +66,17 @@ func main() {
 			fmt.Println("error opening connection,", err)
 			return
 		}
-		initNoon()
+		go initNoon()
 
 		// Wait here until CTRL-C or other term signal is received.
 		fmt.Println("Bot is now running.  Press CTRL-C to exit.")
 		sc := make(chan os.Signal, 1)
 		signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 		<-sc
+		response := &discordgo.MessageEmbed{
+			Title: "Moustachos - Bingo Down",
+		}
+		dg.ChannelMessageSendEmbed("716988290355691621", response)
 
 		// Cleanly close down the Discord session.
 		dg.Close()
@@ -108,16 +112,18 @@ func center(s string, w int) string {
 // This function will be called (due to AddHandler above) when the bot receives
 // the "ready" event from Discord.
 func ready(s *discordgo.Session, event *discordgo.Ready) {
-	list()
+	str := list()
+	response := &discordgo.MessageEmbed{
+		Title:       "Moustachos - Bingo Up",
+		Description: str,
+	}
+	dg.ChannelMessageSendEmbed("716988290355691621", response)
 	// Set the playing status.
 	s.UpdateStatus(0, "!moustachos")
 }
 
-func list() {
-	response := &discordgo.MessageEmbed{
-		Title: "Moustachos - Bingo Up",
-	}
-	str := "```\n"
+func list() (str string) {
+	str = "```\n"
 	str += fmt.Sprintln("|" + center("Username", 20) + "|" + center("Heure", 20) + "|")
 	str += fmt.Sprintf("|--------------------|--------------------|\n")
 	for key, _ := range playerListBet {
@@ -125,8 +131,7 @@ func list() {
 		str += fmt.Sprintln("|" + center(u.Username, 20) + "|" + center(playerListBet[key].Format("15h04"), 20) + "|")
 	}
 	str += "```\n"
-	response.Description = str
-	dg.ChannelMessageSendEmbed("716988290355691621", response)
+	return str
 }
 
 // This function will be called (due to AddHandler above) every time a new
@@ -143,7 +148,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if strings.HasPrefix(m.Content, "!moustachos") {
 		response := &discordgo.MessageEmbed{
 			Color: 0xffcc00,
-			Title: 
+			Title: "Moustachos - Bingo",
 		}
 		command := strings.Split(m.Content, " ")
 		//now := time.Now()
@@ -152,12 +157,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			case "bet":
 				if len(command) > 2 {
 					if t, err := time.Parse("15h04", command[2]); err != nil {
-						response.Title = "Tu sais pas écrire"
+						response.Description = "Tu sais pas écrire"
 					} else {
 						if _, exist := playerListBet[m.Author.ID]; exist {
-							response.Title = "Le joueur " + m.Author.Username + " a changé son parie pour " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
+							response.Description = "Le joueur " + m.Author.Username + " a changé son parie pour " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
 						} else {
-							response.Title = "Le joueur " + m.Author.Username + " a parié sur " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
+							response.Description = "Le joueur " + m.Author.Username + " a parié sur " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
 						}
 						db.SaveData(m.Author.ID, t)
 						playerListBet[m.Author.ID] = t
@@ -165,7 +170,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				}
 
 			case "list":
-				list()
+				response.Description = list()
 			}
 
 		}
