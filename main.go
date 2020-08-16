@@ -8,6 +8,7 @@ import (
 	"moustachos/pkg/db"
 	"os"
 	"os/signal"
+	"sort"
 
 	"strconv"
 	"strings"
@@ -22,12 +23,22 @@ var (
 	dg            *discordgo.Session
 	file          string
 	playerListBet map[string]time.Time //id time
-
+	nextPeriodMsg time.Duration
+	rd            *rand.Rand
 )
 
 func init() {
 	flag.StringVar(&file, "f", "", "-f <config file>")
 	flag.Parse()
+	rd = rand.New(rand.NewSource(time.Now().UnixNano()))
+	t := time.Now()
+	//n := time.Date(t.Year(), t.Month(), t.Day(), 8, rd.Intn(60), 0, 0, t.Location())
+	n := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second()+10, 0, t.Location())
+	nextPeriodMsg = n.Sub(t)
+	if nextPeriodMsg < 0 {
+		n = n.Add(24 * time.Hour)
+		nextPeriodMsg = n.Sub(t)
+	}
 }
 
 func main() {
@@ -66,7 +77,7 @@ func main() {
 			fmt.Println("error opening connection,", err)
 			return
 		}
-		go initNoon()
+		go goMoustachos()
 
 		// Wait here until CTRL-C or other term signal is received.
 		fmt.Println("Bot is now running.  Press CTRL-C to exit.")
@@ -83,26 +94,58 @@ func main() {
 	}
 }
 
-func initNoon() {
-	s1 := rand.NewSource(time.Now().UnixNano())
-	r1 := rand.New(s1)
-	t := time.Now()
-	n := time.Date(t.Year(), t.Month(), t.Day(), 8, 0, r1.Intn(60), 0, t.Location())
-	d := n.Sub(t)
-	if d < 0 {
-		n = n.Add(24 * time.Hour)
-		d = n.Sub(t)
-	}
-	for {
-		time.Sleep(d)
-		d = 24*time.Hour + time.Duration((r1.Intn(60)-30))*time.Minute
-		go sendMoustashos()
-	}
+type classement_item_t struct {
+	player_id string
+	delta     time.Duration
 }
 
-func sendMoustashos() {
+type classement_t []classement_item_t
 
-	dg.ChannelMessageSend("709689069017497681", ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man:")
+func (p classement_t) Len() int {
+	return len(p)
+}
+
+func (p classement_t) Less(i, j int) bool {
+	return p[i].delta < p[j].delta
+}
+
+func (p classement_t) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
+}
+
+func goMoustachos() {
+	for {
+		fmt.Println("Next Moustachos Message in " + nextPeriodMsg.String())
+		time.Sleep(nextPeriodMsg)
+		nextPeriodMsg = 24*time.Hour + time.Duration((rd.Intn(60)-30))*time.Minute
+		t1 := time.Now()
+		dg.ChannelMessageSend("716988290355691621", ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man:")
+		response := &discordgo.MessageEmbed{
+			Title: "Moustachos - Bingo Resultats",
+		}
+
+		classement := make(classement_t, len(playerListBet))
+		i := 0
+		for key, value := range playerListBet {
+			t2 := time.Date(t1.Year(), t1.Month(), t1.Day(), value.Day(), value.Minute(), 0, 0, t1.Location())
+			t3 := t1.Sub(t2)
+
+			e := classement_item_t{
+				player_id: key,
+				delta:     t3,
+			}
+			classement[i] = e
+			i++
+		}
+		sort.Sort(classement)
+		response.Description += "Tri du classement optimisé avec le cul\n"
+		for _, value := range classement {
+			u, _ := dg.User(value.player_id)
+			response.Description += "Joueur " + u.Username + " delta " + value.delta.String() + "\n"
+		}
+
+		dg.ChannelMessageSendEmbed("716988290355691621", response)
+	}
 }
 
 func center(s string, w int) string {
