@@ -3,13 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"math/rand"
 	"moustachos/config"
 	"moustachos/db"
 	"os"
 	"os/signal"
 	"sort"
-
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,6 +25,8 @@ var (
 	playerListBet map[string]time.Time //id time
 	nextPeriodMsg time.Duration
 	rd            *rand.Rand
+	r1            *discordgo.Role
+	r2            *discordgo.Role
 )
 
 func init() {
@@ -49,7 +51,9 @@ func main() {
 		playerListBet = make(map[string]time.Time)
 		// Create a new Discord session using the provided bot token.
 		dg, err = discordgo.New("Bot " + conf.Token)
-		db.Init()
+		if err = db.Init(); err != nil {
+			panic(err)
+		}
 		db.GetAllData(playerListBet)
 		if err != nil {
 			fmt.Println("Error creating Discord session,", err)
@@ -77,6 +81,20 @@ func main() {
 			fmt.Println("error opening connection,", err)
 			return
 		}
+		if r1, err = dg.GuildRoleCreate("613433837212401745"); err != nil {
+			panic(err)
+		} else {
+			r1.Name = "Moustachos du jour"
+			r1.Color = 0x32a89e
+			dg.GuildRoleEdit("613433837212401745", r1.ID, r1.Name, r1.Color, r1.Hoist, r1.Permissions, r1.Mentionable)
+		}
+		if r2, err = dg.GuildRoleCreate("613433837212401745"); err != nil {
+			panic(err)
+		} else {
+			r2.Name = "Imberbe du jour"
+			r2.Color = 0x4a412a
+			dg.GuildRoleEdit("613433837212401745", r2.ID, r2.Name, r2.Color, r2.Hoist, r2.Permissions, r2.Mentionable)
+		}
 		go goMoustachos()
 
 		// Wait here until CTRL-C or other term signal is received.
@@ -88,7 +106,8 @@ func main() {
 			Title: "Moustachos - Bingo Down",
 		}
 		dg.ChannelMessageSendEmbed("716988290355691621", response)
-
+		dg.GuildRoleDelete("613433837212401745", r1.ID)
+		dg.GuildRoleDelete("613433837212401745", r2.ID)
 		// Cleanly close down the Discord session.
 		dg.Close()
 	}
@@ -96,7 +115,7 @@ func main() {
 
 type classement_item_t struct {
 	player_id string
-	delta     time.Duration
+	delta     uint64
 }
 
 type classement_t []classement_item_t
@@ -118,7 +137,7 @@ func goMoustachos() {
 		fmt.Println("Next Moustachos Message in " + nextPeriodMsg.String())
 		time.Sleep(nextPeriodMsg)
 		nextPeriodMsg = 24*time.Hour + time.Duration((rd.Intn(60)-30))*time.Minute
-		t1 := time.Now()
+		t_now := time.Now()
 		dg.ChannelMessageSend("716988290355691621", ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man:")
 		response := &discordgo.MessageEmbed{
 			Title: "Moustachos - Bingo Resultats",
@@ -127,24 +146,35 @@ func goMoustachos() {
 		classement := make(classement_t, len(playerListBet))
 		i := 0
 		for key, value := range playerListBet {
-			t2 := time.Date(t1.Year(), t1.Month(), t1.Day(), value.Day(), value.Minute(), 0, 0, t1.Location())
-			t3 := t1.Sub(t2)
-
+			t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
+			d_delta_player := t_now.Sub(t_player)
+			uint64_hours_player := uint64(math.Abs(d_delta_player.Hours()))
+			uint64_minute_player := uint64(math.Abs(d_delta_player.Minutes()))
+			uint64_delta_player_min := uint64(uint64_hours_player*60 + uint64_minute_player)
 			e := classement_item_t{
 				player_id: key,
-				delta:     t3,
+				delta:     uint64_delta_player_min,
 			}
 			classement[i] = e
 			i++
 		}
 		sort.Sort(classement)
-		response.Description += "Tri du classement optimisé avec le cul\n"
-		for _, value := range classement {
+		response.Description = "```\n"
+		response.Description += fmt.Sprintln("|" + center("Classement du jour", 38) + "|")
+		response.Description += fmt.Sprintln("|" + center("Place", 12) + "|" + center("Username", 12) + "|" + center("Δ(en mim)", 12) + "|")
+		response.Description += fmt.Sprintf("|------------|------------|------------|\n")
+		for i, value := range classement {
 			u, _ := dg.User(value.player_id)
-			response.Description += "Joueur " + u.Username + " delta " + value.delta.String() + "\n"
+			response.Description += fmt.Sprintln("|" + center(strconv.FormatInt(int64(i), 10), 12) + "|" + center(u.Username, 12) + "|" + center(strconv.FormatUint(value.delta, 10), 12) + "|")
 		}
-
+		response.Description += "```\n"
+		dg.GuildMemberRoleAdd("613433837212401745", classement[0].player_id, r1.ID)
+		dg.GuildMemberRoleAdd("613433837212401745", classement[len(classement)-1].player_id, r2.ID)
+		u1, _ := dg.User(classement[0].player_id)
+		u2, _ := dg.User(classement[len(classement)-1].player_id)
 		dg.ChannelMessageSendEmbed("716988290355691621", response)
+		dg.ChannelMessageSend("716988290355691621", "Bravo "+u1.Username+", tu est le <@&"+r1.ID+"> !!")
+		dg.ChannelMessageSend("716988290355691621", "Raté "+u2.Username+", tu est le <@&"+r2.ID+"> !!")
 	}
 }
 

@@ -12,17 +12,14 @@ var (
 	rdb *redis.Client
 )
 
-func Init() bool {
+func Init() error {
 	rdb = redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "",
 		DB:       0,
 	})
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return false
-	} else {
-		return true
-	}
+	err := rdb.Ping(ctx).Err()
+	return err
 }
 
 func SaveData(id string, timestamp time.Time) {
