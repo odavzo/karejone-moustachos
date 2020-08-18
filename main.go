@@ -27,7 +27,31 @@ var (
 	rd            *rand.Rand
 	r1            *discordgo.Role
 	r2            *discordgo.Role
+	conf          config.Config
 )
+
+type classement_item_t struct {
+	player_id string
+	delta     uint64
+}
+
+type classement_t []classement_item_t
+
+func (p classement_t) Len() int {
+	return len(p)
+}
+
+func (p classement_t) Less(i, j int) bool {
+	return p[i].delta < p[j].delta
+}
+
+func (p classement_t) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
+}
+
+func center(s string, w int) string {
+	return fmt.Sprintf("%[1]*s", -w, fmt.Sprintf("%[1]*s", (w+len(s))/2, s))
+}
 
 func init() {
 	flag.StringVar(&file, "f", "", "-f <config file>")
@@ -44,8 +68,8 @@ func init() {
 }
 
 func main() {
-
-	if err, conf := config.GetConf(file); err != nil {
+	var err error
+	if err, conf = config.GetConf(file); err != nil {
 		fmt.Println(err.Error())
 	} else {
 		playerListBet = make(map[string]time.Time)
@@ -81,19 +105,19 @@ func main() {
 			fmt.Println("error opening connection,", err)
 			return
 		}
-		if r1, err = dg.GuildRoleCreate("613433837212401745"); err != nil {
+		if r1, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
 			panic(err)
 		} else {
 			r1.Name = "Moustachos du jour"
 			r1.Color = 0x32a89e
-			dg.GuildRoleEdit("613433837212401745", r1.ID, r1.Name, r1.Color, r1.Hoist, r1.Permissions, r1.Mentionable)
+			dg.GuildRoleEdit(conf.MoustachosGuildId, r1.ID, r1.Name, r1.Color, r1.Hoist, r1.Permissions, r1.Mentionable)
 		}
-		if r2, err = dg.GuildRoleCreate("613433837212401745"); err != nil {
+		if r2, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
 			panic(err)
 		} else {
 			r2.Name = "Imberbe du jour"
 			r2.Color = 0x4a412a
-			dg.GuildRoleEdit("613433837212401745", r2.ID, r2.Name, r2.Color, r2.Hoist, r2.Permissions, r2.Mentionable)
+			dg.GuildRoleEdit(conf.MoustachosGuildId, r2.ID, r2.Name, r2.Color, r2.Hoist, r2.Permissions, r2.Mentionable)
 		}
 		go goMoustachos()
 
@@ -105,31 +129,12 @@ func main() {
 		response := &discordgo.MessageEmbed{
 			Title: "Moustachos - Bingo Down",
 		}
-		dg.ChannelMessageSendEmbed("716988290355691621", response)
-		dg.GuildRoleDelete("613433837212401745", r1.ID)
-		dg.GuildRoleDelete("613433837212401745", r2.ID)
+		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+		dg.GuildRoleDelete(conf.MoustachosGuildId, r1.ID)
+		dg.GuildRoleDelete(conf.MoustachosGuildId, r2.ID)
 		// Cleanly close down the Discord session.
 		dg.Close()
 	}
-}
-
-type classement_item_t struct {
-	player_id string
-	delta     uint64
-}
-
-type classement_t []classement_item_t
-
-func (p classement_t) Len() int {
-	return len(p)
-}
-
-func (p classement_t) Less(i, j int) bool {
-	return p[i].delta < p[j].delta
-}
-
-func (p classement_t) Swap(i, j int) {
-	p[i], p[j] = p[j], p[i]
 }
 
 func goMoustachos() {
@@ -138,19 +143,15 @@ func goMoustachos() {
 		time.Sleep(nextPeriodMsg)
 		nextPeriodMsg = 24*time.Hour + time.Duration((rd.Intn(60)-30))*time.Minute
 		t_now := time.Now()
-		dg.ChannelMessageSend("716988290355691621", ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man:")
 		response := &discordgo.MessageEmbed{
-			Title: "Moustachos - Bingo Resultats",
+			Title: "Moustachos",
 		}
-
 		classement := make(classement_t, len(playerListBet))
 		i := 0
 		for key, value := range playerListBet {
 			t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
 			d_delta_player := t_now.Sub(t_player)
-			uint64_hours_player := uint64(math.Abs(d_delta_player.Hours()))
-			uint64_minute_player := uint64(math.Abs(d_delta_player.Minutes()))
-			uint64_delta_player_min := uint64(uint64_hours_player*60 + uint64_minute_player)
+			uint64_delta_player_min := uint64(math.Abs(d_delta_player.Minutes()))
 			e := classement_item_t{
 				player_id: key,
 				delta:     uint64_delta_player_min,
@@ -158,28 +159,31 @@ func goMoustachos() {
 			classement[i] = e
 			i++
 		}
+		// Tri
 		sort.Sort(classement)
-		response.Description = "```\n"
-		response.Description += fmt.Sprintln("|" + center("Classement du jour", 38) + "|")
-		response.Description += fmt.Sprintln("|" + center("Place", 12) + "|" + center("Username", 12) + "|" + center("Δ(en mim)", 12) + "|")
-		response.Description += fmt.Sprintf("|------------|------------|------------|\n")
+		response.Description += ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:\n"
+		response.Description += fmt.Sprintf("```" +
+			"┌───────────────────────────────────┐\n" +
+			"│" + center("Classement du jour", 35) + "│\n" +
+			"├───┬───────────────┬───────────────┤\n" +
+			"│" + center("#", 3) + "│" + center("Personnage", 15) + "│" + center("Δ (en min)", 15) + "│\n" +
+			"├───┼───────────────┼───────────────┤\n")
 		for i, value := range classement {
 			u, _ := dg.User(value.player_id)
-			response.Description += fmt.Sprintln("|" + center(strconv.FormatInt(int64(i), 10), 12) + "|" + center(u.Username, 12) + "|" + center(strconv.FormatUint(value.delta, 10), 12) + "|")
+			response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" + center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
 		}
-		response.Description += "```\n"
-		dg.GuildMemberRoleAdd("613433837212401745", classement[0].player_id, r1.ID)
-		dg.GuildMemberRoleAdd("613433837212401745", classement[len(classement)-1].player_id, r2.ID)
-		u1, _ := dg.User(classement[0].player_id)
-		u2, _ := dg.User(classement[len(classement)-1].player_id)
-		dg.ChannelMessageSendEmbed("716988290355691621", response)
-		dg.ChannelMessageSend("716988290355691621", "Bravo "+u1.Username+", tu est le <@&"+r1.ID+"> !!")
-		dg.ChannelMessageSend("716988290355691621", "Raté "+u2.Username+", tu est le <@&"+r2.ID+"> !!")
-	}
-}
+		response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
+		response.Description += "```"
+		response.Description += "\n:man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:\n\n"
 
-func center(s string, w int) string {
-	return fmt.Sprintf("%[1]*s", -w, fmt.Sprintf("%[1]*s", (w+len(s))/2, s))
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, r1.ID)
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, r2.ID)
+		//dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+		response.Description += center("Le <@&"+r1.ID+"> est <@"+classement[0].player_id+">\n", 36) +
+			"Le <@&" + r2.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
+		response.Description += ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
+		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+	}
 }
 
 // This function will be called (due to AddHandler above) when the bot receives
@@ -190,19 +194,22 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 		Title:       "Moustachos - Bingo Up",
 		Description: str,
 	}
-	dg.ChannelMessageSendEmbed("716988290355691621", response)
+	dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
 	// Set the playing status.
 	s.UpdateStatus(0, "!moustachos")
 }
 
 func list() (str string) {
-	str = "```\n"
-	str += fmt.Sprintln("|" + center("Username", 20) + "|" + center("Heure", 20) + "|")
-	str += fmt.Sprintf("|--------------------|--------------------|\n")
+	str += fmt.Sprintf("```\n" +
+		"┌───────────────────────────────────┐\n" +
+		"│" + center("Dernière valeur", 35) + "│\n" +
+		"├───────────────────┬───────────────┤\n" +
+		"│" + center("Username", 19) + "│" + center("Heure", 15) + "│\n")
 	for key, _ := range playerListBet {
 		u, _ := dg.User(key)
-		str += fmt.Sprintln("|" + center(u.Username, 20) + "|" + center(playerListBet[key].Format("15h04"), 20) + "|")
+		str += fmt.Sprintln("│" + center(u.Username, 19) + "│" + center(playerListBet[key].Format("15h04"), 15) + "│")
 	}
+	str += fmt.Sprintf("└───────────────────┴───────────────┘\n")
 	str += "```\n"
 	return str
 }
@@ -216,38 +223,39 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
-
-	// check if the message is "!moustachos"
-	if strings.HasPrefix(m.Content, "!moustachos") {
-		response := &discordgo.MessageEmbed{
-			Color: 0xffcc00,
-			Title: "Moustachos - Bingo",
-		}
-		command := strings.Split(m.Content, " ")
-		//now := time.Now()
-		if len(command) > 1 {
-			switch command[1] {
-			case "bet":
-				if len(command) > 2 {
-					if t, err := time.Parse("15h04", command[2]); err != nil {
-						response.Description = "Tu sais pas écrire"
-					} else {
-						if _, exist := playerListBet[m.Author.ID]; exist {
-							response.Description = "Le joueur " + m.Author.Username + " a changé son parie pour " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
+	if m.ChannelID == conf.MoustachosChannelId {
+		// check if the message is "!moustachos"
+		if strings.HasPrefix(m.Content, "!moustachos") {
+			response := &discordgo.MessageEmbed{
+				Color: 0xffcc00,
+				Title: "Moustachos - Bingo",
+			}
+			command := strings.Split(m.Content, " ")
+			//now := time.Now()
+			if len(command) > 1 {
+				switch command[1] {
+				case "bet":
+					if len(command) > 2 {
+						if t, err := time.Parse("15h04", command[2]); err != nil {
+							response.Description = "Tu sais pas écrire"
 						} else {
-							response.Description = "Le joueur " + m.Author.Username + " a parié sur " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
+							if _, exist := playerListBet[m.Author.ID]; exist {
+								response.Description = "Le joueur " + m.Author.Username + " a changé son parie pour " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
+							} else {
+								response.Description = "Le joueur " + m.Author.Username + " a parié sur " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
+							}
+							db.SaveData(m.Author.ID, t)
+							playerListBet[m.Author.ID] = t
 						}
-						db.SaveData(m.Author.ID, t)
-						playerListBet[m.Author.ID] = t
 					}
+
+				case "list":
+					response.Description = list()
 				}
 
-			case "list":
-				response.Description = list()
 			}
-
+			s.ChannelMessageSendEmbed(m.ChannelID, response)
 		}
-		s.ChannelMessageSendEmbed(m.ChannelID, response)
 	}
 }
 
