@@ -18,17 +18,17 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Variables used for command line parameters
-var (
-	dg            *discordgo.Session
-	file          string
-	playerListBet map[string]time.Time //id time
-	nextPeriodMsg time.Duration
-	rd            *rand.Rand
-	r1            *discordgo.Role
-	r2            *discordgo.Role
-	conf          config.Config
-)
+type time_moustachos struct {
+	next_period_msg time.Duration
+	next_time_msg   time.Time
+	next_time_min   time.Time
+	next_time_max   time.Time
+}
+
+type role_moustachos struct {
+	mdj *discordgo.Role
+	idj *discordgo.Role
+}
 
 type classement_item_t struct {
 	player_id string
@@ -36,6 +36,26 @@ type classement_item_t struct {
 }
 
 type classement_t []classement_item_t
+
+// Variables used for command line parameters
+var (
+	dg            *discordgo.Session
+	file          string
+	playerListBet map[string]time.Time //id time
+	rd            *rand.Rand
+	conf          config.Config
+	// Init struct
+	tm = &time_moustachos{
+		next_period_msg: 0,
+		next_time_msg:   time.Now(),
+		next_time_min:   time.Now(),
+		next_time_max:   time.Now(),
+	}
+	rm = &role_moustachos{
+		mdj: nil,
+		idj: nil,
+	}
+)
 
 func (p classement_t) Len() int {
 	return len(p)
@@ -57,14 +77,11 @@ func init() {
 	flag.StringVar(&file, "f", "", "-f <config file>")
 	flag.Parse()
 	rd = rand.New(rand.NewSource(time.Now().UnixNano()))
-	t := time.Now()
-	//n := time.Date(t.Year(), t.Month(), t.Day(), 8, rd.Intn(60), 0, 0, t.Location())
-	n := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second()+10, 0, t.Location())
-	nextPeriodMsg = n.Sub(t)
-	if nextPeriodMsg < 0 {
-		n = n.Add(24 * time.Hour)
-		nextPeriodMsg = n.Sub(t)
-	}
+	t_now := time.Now()
+	tm.next_time_msg = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, rd.Intn(60), 0, 0, t_now.Location())
+	tm.next_time_min = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, 0, 0, 0, t_now.Location())
+	tm.next_time_max = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, 59, 0, 0, t_now.Location())
+	tm.next_period_msg = tm.next_time_msg.Sub(t_now)
 }
 
 func main() {
@@ -105,20 +122,22 @@ func main() {
 			fmt.Println("error opening connection,", err)
 			return
 		}
-		if r1, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
+		if rm.mdj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
 			panic(err)
 		} else {
-			r1.Name = "Moustachos du jour"
-			r1.Color = 0x32a89e
-			dg.GuildRoleEdit(conf.MoustachosGuildId, r1.ID, r1.Name, r1.Color, r1.Hoist, r1.Permissions, r1.Mentionable)
+			rm.mdj.Name = "Moustachos du jour"
+			rm.mdj.Color = 0x32a89e
+			rm.mdj.Hoist = true
+			dg.GuildRoleEdit(conf.MoustachosGuildId, rm.mdj.ID, rm.mdj.Name, rm.mdj.Color, rm.mdj.Hoist, rm.mdj.Permissions, rm.mdj.Mentionable)
 		}
-		if r2, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
+		if rm.idj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
 			panic(err)
 		} else {
-			r2.Name = "Imberbe du jour"
-			r2.Color = 0x4a412a
-			dg.GuildRoleEdit(conf.MoustachosGuildId, r2.ID, r2.Name, r2.Color, r2.Hoist, r2.Permissions, r2.Mentionable)
+			rm.idj.Name = "Imberbe du jour"
+			rm.idj.Color = 0xc7ae6f
+			dg.GuildRoleEdit(conf.MoustachosGuildId, rm.idj.ID, rm.idj.Name, rm.idj.Color, rm.idj.Hoist, rm.idj.Permissions, rm.idj.Mentionable)
 		}
+		go printNextMessageEstimation()
 		go goMoustachos()
 
 		// Wait here until CTRL-C or other term signal is received.
@@ -126,22 +145,32 @@ func main() {
 		sc := make(chan os.Signal, 1)
 		signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 		<-sc
-		response := &discordgo.MessageEmbed{
+		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, &discordgo.MessageEmbed{
 			Title: "Moustachos - Bingo Down",
-		}
-		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
-		dg.GuildRoleDelete(conf.MoustachosGuildId, r1.ID)
-		dg.GuildRoleDelete(conf.MoustachosGuildId, r2.ID)
+		})
+		dg.GuildRoleDelete(conf.MoustachosGuildId, rm.mdj.ID)
+		dg.GuildRoleDelete(conf.MoustachosGuildId, rm.idj.ID)
+
 		// Cleanly close down the Discord session.
 		dg.Close()
 	}
 }
 
+func printNextMessageEstimation() {
+	response := &discordgo.MessageEmbed{
+		Title: "Moustachos",
+	}
+	response.Description = fmt.Sprintf("TEST DE MERDE\nDemain, prochain message entre %s et %s\n",
+		tm.next_time_min.Format("15h04"), tm.next_time_max.Format("15h04"))
+
+	dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+}
+
 func goMoustachos() {
 	for {
-		fmt.Println("Next Moustachos Message in " + nextPeriodMsg.String())
-		time.Sleep(nextPeriodMsg)
-		nextPeriodMsg = 24*time.Hour + time.Duration((rd.Intn(60)-30))*time.Minute
+		fmt.Println("Next Moustachos Message in " + tm.next_period_msg.String())
+		time.Sleep(tm.next_period_msg)
+		tm.next_period_msg = 24*time.Hour + time.Duration((rd.Intn(60)-30))*time.Minute
 		t_now := time.Now()
 		response := &discordgo.MessageEmbed{
 			Title: "Moustachos",
@@ -176,11 +205,11 @@ func goMoustachos() {
 		response.Description += "```"
 		response.Description += "\n:man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:\n\n"
 
-		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, r1.ID)
-		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, r2.ID)
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
 		//dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
-		response.Description += center("Le <@&"+r1.ID+"> est <@"+classement[0].player_id+">\n", 36) +
-			"Le <@&" + r2.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
+		response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
+			"Le <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
 		response.Description += ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
 		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
 	}

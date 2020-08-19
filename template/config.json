@@ -1,3 +1,5 @@
 {
-	"bot_token": "<token>"
+	"bot_token": "<token>",
+	"moustachos_channel_id": "<moustachos_channel_id>",
+	"moustachos_guild_id": "<moustachos_guild_id>",
 }
