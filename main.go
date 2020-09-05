@@ -30,6 +30,9 @@ var (
 	conf          config.Config
 )
 
+const moustachos_str_emote := ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: \
+	:man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
+
 type classement_item_t struct {
 	player_id string
 	delta     uint64
@@ -161,7 +164,7 @@ func goMoustachos() {
 		}
 		// Tri
 		sort.Sort(classement)
-		response.Description += ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:\n"
+		response.Description += moustachos_str_emote+"\n"
 		response.Description += fmt.Sprintf("```" +
 			"┌───────────────────────────────────┐\n" +
 			"│" + center("Classement du jour", 35) + "│\n" +
@@ -170,11 +173,12 @@ func goMoustachos() {
 			"├───┼───────────────┼───────────────┤\n")
 		for i, value := range classement {
 			u, _ := dg.User(value.player_id)
-			response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" + center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
+			response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" +
+				center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
 		}
 		response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
 		response.Description += "```"
-		response.Description += "\n:man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:\n\n"
+		response.Description += moustachos_str_emote+"\n\n"
 
 		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, r1.ID)
 		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, r2.ID)
