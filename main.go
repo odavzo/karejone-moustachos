@@ -18,17 +18,22 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Variables used for command line parameters
-var (
-	dg            *discordgo.Session
-	file          string
-	playerListBet map[string]time.Time //id time
-	nextPeriodMsg time.Duration
-	rd            *rand.Rand
-	r1            *discordgo.Role
-	r2            *discordgo.Role
-	conf          config.Config
-)
+type list_moustachos struct {
+	list_player_next_day map[string]time.Time
+	list_player_curr_day map[string]time.Time
+}
+
+type time_moustachos struct {
+	next_period_msg time.Duration
+	next_time_msg   time.Time
+	next_time_min   time.Time
+	next_time_max   time.Time
+}
+
+type role_moustachos struct {
+	mdj *discordgo.Role
+	idj *discordgo.Role
+}
 
 const moustachos_str_emote := ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: \
 	:man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
@@ -39,6 +44,29 @@ type classement_item_t struct {
 }
 
 type classement_t []classement_item_t
+
+// Variables used for command line parameters
+var (
+	dg   *discordgo.Session
+	file string
+	rd   *rand.Rand
+	conf config.Config
+	// Init struct
+	lm = &list_moustachos{
+		list_player_next_day: make(map[string]time.Time),
+		list_player_curr_day: make(map[string]time.Time),
+	}
+	tm = &time_moustachos{
+		next_period_msg: 0,
+		next_time_msg:   time.Now(),
+		next_time_min:   time.Now(),
+		next_time_max:   time.Now(),
+	}
+	rm = &role_moustachos{
+		mdj: nil,
+		idj: nil,
+	}
+)
 
 func (p classement_t) Len() int {
 	return len(p)
@@ -60,14 +88,11 @@ func init() {
 	flag.StringVar(&file, "f", "", "-f <config file>")
 	flag.Parse()
 	rd = rand.New(rand.NewSource(time.Now().UnixNano()))
-	t := time.Now()
-	//n := time.Date(t.Year(), t.Month(), t.Day(), 8, rd.Intn(60), 0, 0, t.Location())
-	n := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second()+10, 0, t.Location())
-	nextPeriodMsg = n.Sub(t)
-	if nextPeriodMsg < 0 {
-		n = n.Add(24 * time.Hour)
-		nextPeriodMsg = n.Sub(t)
-	}
+	t_now := time.Now()
+	tm.next_time_msg = time.Date(t_now.Year(), t_now.Month(), t_now.Day(), t_now.Hour(), t_now.Minute(), t_now.Second()+5, 0, t_now.Location())
+	tm.next_time_min = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, 0, 0, 0, t_now.Location())
+	tm.next_time_max = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, 59, 0, 0, t_now.Location())
+	tm.next_period_msg = tm.next_time_msg.Sub(t_now)
 }
 
 func main() {
@@ -75,13 +100,13 @@ func main() {
 	if err, conf = config.GetConf(file); err != nil {
 		fmt.Println(err.Error())
 	} else {
-		playerListBet = make(map[string]time.Time)
+
 		// Create a new Discord session using the provided bot token.
 		dg, err = discordgo.New("Bot " + conf.Token)
 		if err = db.Init(); err != nil {
 			panic(err)
 		}
-		db.GetAllData(playerListBet)
+		db.GetAllData(lm.list_player_next_day)
 		if err != nil {
 			fmt.Println("Error creating Discord session,", err)
 			return
@@ -108,20 +133,22 @@ func main() {
 			fmt.Println("error opening connection,", err)
 			return
 		}
-		if r1, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
+		if rm.mdj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
 			panic(err)
 		} else {
-			r1.Name = "Moustachos du jour"
-			r1.Color = 0x32a89e
-			dg.GuildRoleEdit(conf.MoustachosGuildId, r1.ID, r1.Name, r1.Color, r1.Hoist, r1.Permissions, r1.Mentionable)
+			rm.mdj.Name = "Moustachos du jour"
+			rm.mdj.Color = 0x32a89e
+			rm.mdj.Hoist = true
+			dg.GuildRoleEdit(conf.MoustachosGuildId, rm.mdj.ID, rm.mdj.Name, rm.mdj.Color, rm.mdj.Hoist, rm.mdj.Permissions, rm.mdj.Mentionable)
 		}
-		if r2, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
+		if rm.idj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
 			panic(err)
 		} else {
-			r2.Name = "Imberbe du jour"
-			r2.Color = 0x4a412a
-			dg.GuildRoleEdit(conf.MoustachosGuildId, r2.ID, r2.Name, r2.Color, r2.Hoist, r2.Permissions, r2.Mentionable)
+			rm.idj.Name = "Imberbe du jour"
+			rm.idj.Color = 0xc7ae6f
+			dg.GuildRoleEdit(conf.MoustachosGuildId, rm.idj.ID, rm.idj.Name, rm.idj.Color, rm.idj.Hoist, rm.idj.Permissions, rm.idj.Mentionable)
 		}
+		go printNextMessageEstimation()
 		go goMoustachos()
 
 		// Wait here until CTRL-C or other term signal is received.
@@ -129,29 +156,60 @@ func main() {
 		sc := make(chan os.Signal, 1)
 		signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 		<-sc
-		response := &discordgo.MessageEmbed{
+		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, &discordgo.MessageEmbed{
 			Title: "Moustachos - Bingo Down",
-		}
-		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
-		dg.GuildRoleDelete(conf.MoustachosGuildId, r1.ID)
-		dg.GuildRoleDelete(conf.MoustachosGuildId, r2.ID)
+		})
+		dg.GuildRoleDelete(conf.MoustachosGuildId, rm.mdj.ID)
+		dg.GuildRoleDelete(conf.MoustachosGuildId, rm.idj.ID)
+
 		// Cleanly close down the Discord session.
 		dg.Close()
 	}
 }
 
+func printNextMessageEstimation() {
+	response := &discordgo.MessageEmbed{
+		Title: "Moustachos",
+	}
+	response.Description = fmt.Sprintf("TEST DE MERDE\nDemain, prochain message\n")
+	if tm.next_time_min.After(tm.next_time_max) {
+		response.Description += "entre " + tm.next_time_min.Format("15h04") + " et " + "23h59 et entre 00h00 et " + tm.next_time_max.Format("15h04")
+	} else {
+		response.Description += "entre " + tm.next_time_min.Format("15h04") + " et " + tm.next_time_max.Format("15h04")
+	}
+
+	dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+}
+
+func manageVoting() {
+
+}
+
 func goMoustachos() {
 	for {
-		fmt.Println("Next Moustachos Message in " + nextPeriodMsg.String())
-		time.Sleep(nextPeriodMsg)
-		nextPeriodMsg = 24*time.Hour + time.Duration((rd.Intn(60)-30))*time.Minute
+		fmt.Println("Next Moustachos Message in " + tm.next_period_msg.String())
+		time.Sleep(tm.next_period_msg)
 		t_now := time.Now()
+		delta_min := rd.Intn(60) - 30
+		t_previous := tm.next_time_msg
+		tm.next_period_msg = 24*time.Hour + time.Duration(delta_min)*time.Minute
+		tm.next_time_msg = t_now.Add(tm.next_period_msg)
+		tm.next_time_min = t_previous.Add(-30 * time.Minute)
+		tm.next_time_max = t_previous.Add(29 * time.Minute)
+		if tm.next_time_min.Day() != t_now.Day() {
+			tm.next_time_min.Add(24 * time.Hour)
+		}
+		if tm.next_time_max.Day() != t_now.Day() {
+			tm.next_time_min.Add(-24 * time.Hour)
+		}
+		fmt.Println(tm.next_time_min)
+		fmt.Println(tm.next_time_max)
 		response := &discordgo.MessageEmbed{
 			Title: "Moustachos",
 		}
-		classement := make(classement_t, len(playerListBet))
+		classement := make(classement_t, len(lm.list_player_next_day))
 		i := 0
-		for key, value := range playerListBet {
+		for key, value := range lm.list_player_next_day {
 			t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
 			d_delta_player := t_now.Sub(t_player)
 			uint64_delta_player_min := uint64(math.Abs(d_delta_player.Minutes()))
@@ -180,11 +238,11 @@ func goMoustachos() {
 		response.Description += "```"
 		response.Description += moustachos_str_emote+"\n\n"
 
-		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, r1.ID)
-		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, r2.ID)
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
 		//dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
-		response.Description += center("Le <@&"+r1.ID+"> est <@"+classement[0].player_id+">\n", 36) +
-			"Le <@&" + r2.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
+		response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
+			"Le <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
 		response.Description += ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
 		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
 	}
@@ -209,9 +267,9 @@ func list() (str string) {
 		"│" + center("Dernière valeur", 35) + "│\n" +
 		"├───────────────────┬───────────────┤\n" +
 		"│" + center("Username", 19) + "│" + center("Heure", 15) + "│\n")
-	for key, _ := range playerListBet {
+	for key, _ := range lm.list_player_next_day {
 		u, _ := dg.User(key)
-		str += fmt.Sprintln("│" + center(u.Username, 19) + "│" + center(playerListBet[key].Format("15h04"), 15) + "│")
+		str += fmt.Sprintln("│" + center(u.Username, 19) + "│" + center(lm.list_player_next_day[key].Format("15h04"), 15) + "│")
 	}
 	str += fmt.Sprintf("└───────────────────┴───────────────┘\n")
 	str += "```\n"
@@ -243,13 +301,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 						if t, err := time.Parse("15h04", command[2]); err != nil {
 							response.Description = "Tu sais pas écrire"
 						} else {
-							if _, exist := playerListBet[m.Author.ID]; exist {
+							if _, exist := lm.list_player_next_day[m.Author.ID]; exist {
 								response.Description = "Le joueur " + m.Author.Username + " a changé son parie pour " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
 							} else {
 								response.Description = "Le joueur " + m.Author.Username + " a parié sur " + strconv.Itoa(t.Hour()) + ":" + strconv.Itoa(t.Minute())
 							}
 							db.SaveData(m.Author.ID, t)
-							playerListBet[m.Author.ID] = t
+							lm.list_player_next_day[m.Author.ID] = t
 						}
 					}
 
