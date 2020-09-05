@@ -35,8 +35,9 @@ type role_moustachos struct {
 	idj *discordgo.Role
 }
 
-const moustachos_str_emote := ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: \
-	:man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
+const moustachos_str_emote = ":man: :man_tone1: :man_tone2: :man_tone3:" +
+	":man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1:" +
+	":man: :man: :man_tone1: :man_tone2:"
 
 type classement_item_t struct {
 	player_id string
@@ -89,7 +90,7 @@ func init() {
 	flag.Parse()
 	rd = rand.New(rand.NewSource(time.Now().UnixNano()))
 	t_now := time.Now()
-	tm.next_time_msg = time.Date(t_now.Year(), t_now.Month(), t_now.Day(), t_now.Hour(), t_now.Minute(), t_now.Second()+5, 0, t_now.Location())
+	tm.next_time_msg = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, rd.Intn(60), 1, 0, t_now.Location())
 	tm.next_time_min = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, 0, 0, 0, t_now.Location())
 	tm.next_time_max = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, 59, 0, 0, t_now.Location())
 	tm.next_period_msg = tm.next_time_msg.Sub(t_now)
@@ -171,7 +172,7 @@ func printNextMessageEstimation() {
 	response := &discordgo.MessageEmbed{
 		Title: "Moustachos",
 	}
-	response.Description = fmt.Sprintf("TEST DE MERDE\nDemain, prochain message\n")
+	response.Description = fmt.Sprintf("Demain, prochain message\n")
 	if tm.next_time_min.After(tm.next_time_max) {
 		response.Description += "entre " + tm.next_time_min.Format("15h04") + " et " + "23h59 et entre 00h00 et " + tm.next_time_max.Format("15h04")
 	} else {
@@ -182,6 +183,14 @@ func printNextMessageEstimation() {
 }
 
 func manageVoting() {
+	for {
+		t_yesterday := time.Date(tm.next_time_msg.Year(), tm.next_time_msg.Month(), tm.next_time_msg.Day(), 0, 0, 1, 0, tm.next_time_msg.Location())
+		time.Until(t_yesterday)
+		for k, v := range lm.list_player_next_day {
+			lm.list_player_curr_day[k] = v
+			delete(lm.list_player_next_day, k)
+		}
+	}
 
 }
 
@@ -207,43 +216,48 @@ func goMoustachos() {
 		response := &discordgo.MessageEmbed{
 			Title: "Moustachos",
 		}
-		classement := make(classement_t, len(lm.list_player_next_day))
-		i := 0
-		for key, value := range lm.list_player_next_day {
-			t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
-			d_delta_player := t_now.Sub(t_player)
-			uint64_delta_player_min := uint64(math.Abs(d_delta_player.Minutes()))
-			e := classement_item_t{
-				player_id: key,
-				delta:     uint64_delta_player_min,
+		if len(lm.list_player_curr_day) > 2 {
+			classement := make(classement_t, len(lm.list_player_curr_day))
+			i := 0
+			for key, value := range lm.list_player_curr_day {
+				t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
+				d_delta_player := t_now.Sub(t_player)
+				uint64_delta_player_min := uint64(math.Abs(d_delta_player.Minutes()))
+				e := classement_item_t{
+					player_id: key,
+					delta:     uint64_delta_player_min,
+				}
+				classement[i] = e
+				i++
 			}
-			classement[i] = e
-			i++
-		}
-		// Tri
-		sort.Sort(classement)
-		response.Description += moustachos_str_emote+"\n"
-		response.Description += fmt.Sprintf("```" +
-			"┌───────────────────────────────────┐\n" +
-			"│" + center("Classement du jour", 35) + "│\n" +
-			"├───┬───────────────┬───────────────┤\n" +
-			"│" + center("#", 3) + "│" + center("Personnage", 15) + "│" + center("Δ (en min)", 15) + "│\n" +
-			"├───┼───────────────┼───────────────┤\n")
-		for i, value := range classement {
-			u, _ := dg.User(value.player_id)
-			response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" +
-				center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
-		}
-		response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
-		response.Description += "```"
-		response.Description += moustachos_str_emote+"\n\n"
+			// Tri
+			sort.Sort(classement)
+			response.Description += moustachos_str_emote + "\n"
+			response.Description += fmt.Sprintf("```" +
+				"┌───────────────────────────────────┐\n" +
+				"│" + center("Classement du jour", 35) + "│\n" +
+				"├───┬───────────────┬───────────────┤\n" +
+				"│" + center("#", 3) + "│" + center("Personnage", 15) + "│" + center("Δ (en min)", 15) + "│\n" +
+				"├───┼───────────────┼───────────────┤\n")
+			for i, value := range classement {
+				u, _ := dg.User(value.player_id)
+				response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" +
+					center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
+			}
+			response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
+			response.Description += "```\n"
+			response.Description += moustachos_str_emote + "\n\n"
 
-		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
-		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
-		//dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
-		response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
-			"Le <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
-		response.Description += ":man: :man_tone1: :man_tone2: :man_tone3: :man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1: :man: :man: :man_tone1: :man_tone2:"
+			dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
+			dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
+			response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
+				"L' <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
+			response.Description += moustachos_str_emote
+		} else {
+			response.Description += moustachos_str_emote + "\n\n"
+			response.Description += "Pas assez de joueur ont joué hier, il faut au moins deux joueurs !!\n\n"
+			response.Description += moustachos_str_emote
+		}
 		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
 	}
 }
@@ -293,7 +307,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				Title: "Moustachos - Bingo",
 			}
 			command := strings.Split(m.Content, " ")
-			//now := time.Now()
 			if len(command) > 1 {
 				switch command[1] {
 				case "bet":
