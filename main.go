@@ -151,6 +151,7 @@ func main() {
 		}
 		go printNextMessageEstimation()
 		go goMoustachos()
+		go manageVoting()
 
 		// Wait here until CTRL-C or other term signal is received.
 		fmt.Println("Bot is now running.  Press CTRL-C to exit.")
@@ -259,6 +260,7 @@ func goMoustachos() {
 			response.Description += moustachos_str_emote
 		}
 		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+		go printNextMessageEstimation()
 	}
 }
 
