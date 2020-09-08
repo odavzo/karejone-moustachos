@@ -187,6 +187,7 @@ func update() {
 	for k, v := range lm.list_player_next_day {
 		lm.list_player_curr_day[k] = v
 		delete(lm.list_player_next_day, k)
+		fmt.Println(lm.list_player_next_day)
 	}
 }
 
@@ -241,8 +242,10 @@ func trigger(t_now time.Time) {
 
 func manageVoting() {
 	for {
-		t_yesterday := time.Date(tm.next_time_msg.Year(), tm.next_time_msg.Month(), tm.next_time_msg.Day(), 0, 0, 1, 0, tm.next_time_msg.Location())
-		time.Until(t_yesterday)
+		t_now := time.Now()
+		t_yesterday := time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 0, 0, 1, 0, t_now.Location())
+		fmt.Println(time.Until(t_yesterday))
+		time.Sleep(time.Until(t_yesterday))
 		update()
 	}
 
@@ -331,6 +334,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 							}
 							db.SaveData(m.Author.ID, t)
 							lm.list_player_next_day[m.Author.ID] = t
+							fmt.Println(lm.list_player_next_day)
 						}
 					}
 
