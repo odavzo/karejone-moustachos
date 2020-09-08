@@ -183,14 +183,67 @@ func printNextMessageEstimation() {
 	dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
 }
 
+func update() {
+	for k, v := range lm.list_player_next_day {
+		lm.list_player_curr_day[k] = v
+		delete(lm.list_player_next_day, k)
+	}
+}
+
+func trigger(t_now time.Time) {
+	response := &discordgo.MessageEmbed{
+		Title: "Moustachos",
+	}
+	if len(lm.list_player_curr_day) > 2 {
+		classement := make(classement_t, len(lm.list_player_curr_day))
+		i := 0
+		for key, value := range lm.list_player_curr_day {
+			t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
+			d_delta_player := t_now.Sub(t_player)
+			uint64_delta_player_min := uint64(math.Abs(d_delta_player.Minutes()))
+			e := classement_item_t{
+				player_id: key,
+				delta:     uint64_delta_player_min,
+			}
+			classement[i] = e
+			i++
+		}
+		// Tri
+		sort.Sort(classement)
+		response.Description += moustachos_str_emote + "\n"
+		response.Description += fmt.Sprintf("```" +
+			"┌───────────────────────────────────┐\n" +
+			"│" + center("Classement du jour", 35) + "│\n" +
+			"├───┬───────────────┬───────────────┤\n" +
+			"│" + center("#", 3) + "│" + center("Personnage", 15) + "│" + center("Δ (en min)", 15) + "│\n" +
+			"├───┼───────────────┼───────────────┤\n")
+		for i, value := range classement {
+			u, _ := dg.User(value.player_id)
+			response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" +
+				center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
+		}
+		response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
+		response.Description += "```\n"
+		response.Description += moustachos_str_emote + "\n\n"
+
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
+		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
+		response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
+			"L' <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
+		response.Description += moustachos_str_emote
+	} else {
+		response.Description += moustachos_str_emote + "\n\n"
+		response.Description += "Pas assez de joueur ont joué hier, il faut au moins deux joueurs !!\n\n"
+		response.Description += moustachos_str_emote
+	}
+	dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+}
+
 func manageVoting() {
 	for {
 		t_yesterday := time.Date(tm.next_time_msg.Year(), tm.next_time_msg.Month(), tm.next_time_msg.Day(), 0, 0, 1, 0, tm.next_time_msg.Location())
 		time.Until(t_yesterday)
-		for k, v := range lm.list_player_next_day {
-			lm.list_player_curr_day[k] = v
-			delete(lm.list_player_next_day, k)
-		}
+		update()
 	}
 
 }
@@ -214,52 +267,7 @@ func goMoustachos() {
 		}
 		fmt.Println(tm.next_time_min)
 		fmt.Println(tm.next_time_max)
-		response := &discordgo.MessageEmbed{
-			Title: "Moustachos",
-		}
-		if len(lm.list_player_curr_day) > 2 {
-			classement := make(classement_t, len(lm.list_player_curr_day))
-			i := 0
-			for key, value := range lm.list_player_curr_day {
-				t_player := time.Date(t_now.Year(), t_now.Month(), t_now.Day(), value.Hour(), value.Minute(), 0, 0, t_now.Location())
-				d_delta_player := t_now.Sub(t_player)
-				uint64_delta_player_min := uint64(math.Abs(d_delta_player.Minutes()))
-				e := classement_item_t{
-					player_id: key,
-					delta:     uint64_delta_player_min,
-				}
-				classement[i] = e
-				i++
-			}
-			// Tri
-			sort.Sort(classement)
-			response.Description += moustachos_str_emote + "\n"
-			response.Description += fmt.Sprintf("```" +
-				"┌───────────────────────────────────┐\n" +
-				"│" + center("Classement du jour", 35) + "│\n" +
-				"├───┬───────────────┬───────────────┤\n" +
-				"│" + center("#", 3) + "│" + center("Personnage", 15) + "│" + center("Δ (en min)", 15) + "│\n" +
-				"├───┼───────────────┼───────────────┤\n")
-			for i, value := range classement {
-				u, _ := dg.User(value.player_id)
-				response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" +
-					center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
-			}
-			response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
-			response.Description += "```\n"
-			response.Description += moustachos_str_emote + "\n\n"
-
-			dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
-			dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
-			response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
-				"L' <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
-			response.Description += moustachos_str_emote
-		} else {
-			response.Description += moustachos_str_emote + "\n\n"
-			response.Description += "Pas assez de joueur ont joué hier, il faut au moins deux joueurs !!\n\n"
-			response.Description += moustachos_str_emote
-		}
-		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, response)
+		go trigger(t_now)
 		go printNextMessageEstimation()
 	}
 }
@@ -283,9 +291,9 @@ func list() (str string) {
 		"│" + center("Dernière valeur", 35) + "│\n" +
 		"├───────────────────┬───────────────┤\n" +
 		"│" + center("Username", 19) + "│" + center("Heure", 15) + "│\n")
-	for key, _ := range lm.list_player_next_day {
+	for key, val := range lm.list_player_next_day {
 		u, _ := dg.User(key)
-		str += fmt.Sprintln("│" + center(u.Username, 19) + "│" + center(lm.list_player_next_day[key].Format("15h04"), 15) + "│")
+		str += fmt.Sprintln("│" + center(u.Username, 19) + "│" + center(val.Format("15h04"), 15) + "│")
 	}
 	str += fmt.Sprintf("└───────────────────┴───────────────┘\n")
 	str += "```\n"
@@ -328,6 +336,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 				case "list":
 					response.Description = list()
+				case "debug":
+					if len(command) > 2 {
+						switch command[2] {
+						case "trigger":
+							go trigger(time.Now())
+						case "update":
+							go update()
+						}
+					}
+
 				}
 
 			}
