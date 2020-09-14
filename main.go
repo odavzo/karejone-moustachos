@@ -191,6 +191,20 @@ func update() {
 	}
 }
 
+func delete_role() {
+	if members, err := dg.GuildMembers(conf.MoustachosGuildId, "", 1000); err != nil {
+		fmt.Println(err)
+	} else {
+		for _, m := range members {
+			for _, r := range m.Roles {
+				if r == rm.idj.ID || r == rm.mdj.ID {
+					dg.GuildMemberRoleRemove(g.ID, m.User.ID, r)
+				}
+			}
+		}
+	}
+}
+
 func trigger(t_now time.Time) {
 	response := &discordgo.MessageEmbed{
 		Title: "Moustachos",
@@ -226,7 +240,7 @@ func trigger(t_now time.Time) {
 		response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
 		response.Description += "```\n"
 		response.Description += moustachos_str_emote + "\n\n"
-
+		delete_role()
 		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
 		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
 		response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
