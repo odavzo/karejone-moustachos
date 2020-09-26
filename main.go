@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	log "github.com/sirupsen/logrus"
 )
 
 type list_moustachos struct {
@@ -36,8 +37,7 @@ type role_moustachos struct {
 }
 
 const moustachos_str_emote = ":man: :man_tone1: :man_tone2: :man_tone3:" +
-	":man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1:" +
-	":man: :man: :man_tone1: :man_tone2:"
+	":man_tone4: :man_tone5: :man_tone4: :man_tone3: :man_tone2: :man_tone1:"
 
 type classement_item_t struct {
 	player_id string
@@ -48,10 +48,11 @@ type classement_t []classement_item_t
 
 // Variables used for command line parameters
 var (
-	dg   *discordgo.Session
-	file string
-	rd   *rand.Rand
-	conf config.Config
+	dg       *discordgo.Session
+	file     string
+	file_log string
+	rd       *rand.Rand
+	conf     config.Config
 	// Init struct
 	lm = &list_moustachos{
 		list_player_next_day: make(map[string]time.Time),
@@ -81,13 +82,36 @@ func (p classement_t) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
 }
 
-func center(s string, w int) string {
-	return fmt.Sprintf("%[1]*s", -w, fmt.Sprintf("%[1]*s", (w+len(s))/2, s))
-}
-
 func init() {
+	var debug_level string
 	flag.StringVar(&file, "f", "", "-f <config file>")
+	flag.StringVar(&debug_level, "log_level", "fatal", "-debug_level <panic/fatal/error/warn/warning/info/debug/trace>")
+	flag.StringVar(&file_log, "log_file", "", "-log_level <log_file>, default: stdout")
 	flag.Parse()
+
+	if level, err := log.ParseLevel(debug_level); err != nil {
+		panic(err)
+	} else {
+		log.SetLevel(level)
+	}
+
+	if file_log == "" {
+		log.SetOutput(os.Stdout)
+		log.SetFormatter(&log.TextFormatter{
+			ForceColors: true,
+		})
+	} else {
+		f, err := os.OpenFile(file_log, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0755)
+		if err != nil {
+			panic(err)
+		}
+		log.SetOutput(f)
+		log.SetFormatter(&log.TextFormatter{
+			DisableColors: true,
+			FullTimestamp: true,
+		})
+	}
+
 	rd = rand.New(rand.NewSource(time.Now().UnixNano()))
 	t_now := time.Now()
 	tm.next_time_msg = time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 8, rd.Intn(60), 1, 0, t_now.Location())
@@ -104,15 +128,16 @@ func main() {
 
 		// Create a new Discord session using the provided bot token.
 		dg, err = discordgo.New("Bot " + conf.Token)
+
 		if err = db.Init(); err != nil {
 			panic(err)
 		}
 		db.GetAllData(lm.list_player_next_day)
 		if err != nil {
-			fmt.Println("Error creating Discord session,", err)
+			log.Errorln("Error creating Discord session,", err)
 			return
 		} else {
-			fmt.Println("Bot connected")
+			log.Infoln("Bot connected")
 		}
 
 		// Register ready as a callback for the ready events.
@@ -126,12 +151,12 @@ func main() {
 
 		// We need information about guilds (which includes their channels),
 		// messages and voice states.
-		dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates)
+		dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAll)
 
 		// Open a websocket connection to Discord and begin listening.
 		err = dg.Open()
 		if err != nil {
-			fmt.Println("error opening connection,", err)
+			log.Errorln("error opening connection,", err)
 			return
 		}
 		if rm.mdj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
@@ -154,15 +179,19 @@ func main() {
 		go manageVoting()
 
 		// Wait here until CTRL-C or other term signal is received.
-		fmt.Println("Bot is now running.  Press CTRL-C to exit.")
+		log.Infoln("Bot is now running.  Press CTRL-C to exit.")
 		sc := make(chan os.Signal, 1)
 		signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 		<-sc
 		dg.ChannelMessageSendEmbed(conf.MoustachosChannelId, &discordgo.MessageEmbed{
 			Title: "Moustachos - Bingo Down",
 		})
-		dg.GuildRoleDelete(conf.MoustachosGuildId, rm.mdj.ID)
-		dg.GuildRoleDelete(conf.MoustachosGuildId, rm.idj.ID)
+		if err := dg.GuildRoleDelete(conf.MoustachosGuildId, rm.mdj.ID); err != nil {
+			log.Errorln(err)
+		}
+		if err := dg.GuildRoleDelete(conf.MoustachosGuildId, rm.idj.ID); err != nil {
+			log.Errorln(err)
+		}
 
 		// Cleanly close down the Discord session.
 		dg.Close()
@@ -187,7 +216,6 @@ func update() {
 	for k, v := range lm.list_player_next_day {
 		lm.list_player_curr_day[k] = v
 		delete(lm.list_player_next_day, k)
-		fmt.Println(lm.list_player_next_day)
 	}
 }
 
@@ -198,7 +226,7 @@ func delete_role() {
 		for _, m := range members {
 			for _, r := range m.Roles {
 				if r == rm.idj.ID || r == rm.mdj.ID {
-					dg.GuildMemberRoleRemove(g.ID, m.User.ID, r)
+					dg.GuildMemberRoleRemove(conf.MoustachosGuildId, m.User.ID, r)
 				}
 			}
 		}
@@ -226,25 +254,20 @@ func trigger(t_now time.Time) {
 		// Tri
 		sort.Sort(classement)
 		response.Description += moustachos_str_emote + "\n"
-		response.Description += fmt.Sprintf("```" +
-			"┌───────────────────────────────────┐\n" +
-			"│" + center("Classement du jour", 35) + "│\n" +
-			"├───┬───────────────┬───────────────┤\n" +
-			"│" + center("#", 3) + "│" + center("Personnage", 15) + "│" + center("Δ (en min)", 15) + "│\n" +
-			"├───┼───────────────┼───────────────┤\n")
+		response.Description = "```"
+		class_str := [][]string{}
 		for i, value := range classement {
 			u, _ := dg.User(value.player_id)
-			response.Description += fmt.Sprintln("│" + center(strconv.FormatInt(int64(i), 10), 3) + "│" +
-				center(u.Username, 15) + "│" + center(strconv.FormatUint(value.delta, 10), 15) + "│")
+			class_str = append(class_str, []string{strconv.Itoa(i), u.Username, strconv.FormatUint(value.delta, 10)})
 		}
-		response.Description += fmt.Sprintf("└───┴───────────────┴───────────────┘\n")
+		response.Description += create_string_table("Classement du jour", []string{"#", "Personnage", "Δ"}, []int{3, 12, 6}, class_str)
 		response.Description += "```\n"
 		response.Description += moustachos_str_emote + "\n\n"
 		delete_role()
 		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[0].player_id, rm.mdj.ID)
 		dg.GuildMemberRoleAdd(conf.MoustachosGuildId, classement[len(classement)-1].player_id, rm.idj.ID)
-		response.Description += center("Le <@&"+rm.mdj.ID+"> est <@"+classement[0].player_id+">\n", 36) +
-			"L' <@&" + rm.idj.ID + "> est <@" + classement[len(classement)-1].player_id + ">\n\n"
+		response.Description += "<@&" + rm.mdj.ID + ">\n⤷ <@" + classement[0].player_id + ">\n" +
+			"<@&" + rm.idj.ID + ">\n⤷ <@" + classement[len(classement)-1].player_id + ">\n\n"
 		response.Description += moustachos_str_emote
 	} else {
 		response.Description += moustachos_str_emote + "\n\n"
@@ -258,7 +281,6 @@ func manageVoting() {
 	for {
 		t_now := time.Now()
 		t_yesterday := time.Date(t_now.Year(), t_now.Month(), t_now.Day()+1, 0, 0, 1, 0, t_now.Location())
-		fmt.Println(time.Until(t_yesterday))
 		time.Sleep(time.Until(t_yesterday))
 		update()
 	}
@@ -267,7 +289,7 @@ func manageVoting() {
 
 func goMoustachos() {
 	for {
-		fmt.Println("Next Moustachos Message in " + tm.next_period_msg.String())
+		log.Infoln("Next Moustachos Message in " + tm.next_period_msg.String())
 		time.Sleep(tm.next_period_msg)
 		t_now := time.Now()
 		delta_min := rd.Intn(60) - 30
@@ -282,10 +304,21 @@ func goMoustachos() {
 		if tm.next_time_max.Day() != t_now.Day() {
 			tm.next_time_min.Add(-24 * time.Hour)
 		}
-		fmt.Println(tm.next_time_min)
-		fmt.Println(tm.next_time_max)
 		go trigger(t_now)
 		go printNextMessageEstimation()
+	}
+}
+
+func presence(s *discordgo.Session, event *discordgo.Event) {
+	log.Infoln("Event: " + event.Type)
+	if event.Type == "PRESENCE_UPDATE" {
+		p := event.Struct.(*discordgo.PresenceUpdate)
+		log.Infoln(p.User.ID + " " + string(p.Presence.Status))
+	}
+
+	if event.Type == "TYPING_START" {
+		p := event.Struct.(*discordgo.TypingStart)
+		log.Infoln(p.Timestamp)
 	}
 }
 
@@ -303,16 +336,13 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 }
 
 func list() (str string) {
-	str += fmt.Sprintf("```\n" +
-		"┌───────────────────────────────────┐\n" +
-		"│" + center("Dernière valeur", 35) + "│\n" +
-		"├───────────────────┬───────────────┤\n" +
-		"│" + center("Username", 19) + "│" + center("Heure", 15) + "│\n")
-	for key, val := range lm.list_player_next_day {
+	str = "```"
+	pairs := [][]string{}
+	for key, value := range lm.list_player_next_day {
 		u, _ := dg.User(key)
-		str += fmt.Sprintln("│" + center(u.Username, 19) + "│" + center(val.Format("15h04"), 15) + "│")
+		pairs = append(pairs, []string{u.Username, value.Format("15h04")})
 	}
-	str += fmt.Sprintf("└───────────────────┴───────────────┘\n")
+	str += create_string_table("Dernière valeur", []string{"Username", "Heure"}, []int{12, 9}, pairs)
 	str += "```\n"
 	return str
 }
@@ -386,4 +416,70 @@ func guildCreate(s *discordgo.Session, event *discordgo.GuildCreate) {
 			return
 		}
 	}
+}
+
+func center(s string, w int) string {
+	if len(s) > w {
+		s = s[:w]
+	}
+	return fmt.Sprintf("%[1]*s", -w, fmt.Sprintf("%[1]*s", (w+len(s))/2, s))
+}
+
+/*
+┌───────┐
+│  h1   │
+├───┬───┤
+│ h2│ h2│
+├───┼───┤
+│ v │ v │
+└───┴───┘
+*/
+func create_string_table(h1 string, h2 []string, h2_size []int, value [][]string) string {
+	ret_str := ""
+	total_width := len(h2_size) - 1
+	for _, w_size := range h2_size {
+		total_width += w_size
+	}
+	ret_str += fmt.Sprintf("┌%s┐\n", strings.Repeat("─", total_width))
+	ret_str += fmt.Sprintf("│" + center(h1, total_width) + "│\n")
+	ret_str += "├"
+	for i, w_size := range h2_size {
+		ret_str += fmt.Sprintf(strings.Repeat("─", w_size))
+		if i != len(h2_size)-1 {
+			ret_str += "┬"
+		}
+	}
+	ret_str += "┤\n│"
+	for i, w_size := range h2_size {
+		ret_str += fmt.Sprintf(center(h2[i], w_size))
+		if i != len(h2_size)-1 {
+			ret_str += "│"
+		}
+	}
+	ret_str += "│\n├"
+	for i, w_size := range h2_size {
+		ret_str += fmt.Sprintf(strings.Repeat("─", w_size))
+		if i != len(h2_size)-1 {
+			ret_str += "┼"
+		}
+	}
+	ret_str += "┤\n│"
+	for i, row := range value {
+		for j, cell := range row {
+			ret_str += fmt.Sprintf(center(cell, h2_size[j]))
+			ret_str += "│"
+		}
+		if i != len(value)-1 {
+			ret_str += "\n│"
+		}
+	}
+	ret_str += "\n└"
+	for i, w_size := range h2_size {
+		ret_str += fmt.Sprintf(strings.Repeat("─", w_size))
+		if i != len(h2_size)-1 {
+			ret_str += "┴"
+		}
+	}
+	ret_str += "┘"
+	return ret_str
 }
