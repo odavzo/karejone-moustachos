@@ -4,6 +4,8 @@ services:
     redis:
         image: redis
         command: redis-server
+        environment:
+            TZ: "CET"
         ports:
             - "6379:6379"
         hostname: redis
@@ -16,10 +18,10 @@ services:
     app:
         image: golang
         command: go run main.go -f config.json
+        environment:
+            TZ: "CET"
         depends_on:
           - redis
-        ports:
-            - "80:80"
         volumes:
           - .:/go/src
         working_dir: /go/src
