@@ -42,6 +42,7 @@ const moustachos_str_emote = ":man: :man_tone1: :man_tone2: :man_tone3:" +
 type classement_item_t struct {
 	player_id string
 	delta     uint64
+	heure     string
 }
 
 type classement_t []classement_item_t
@@ -68,6 +69,11 @@ var (
 		mdj: nil,
 		idj: nil,
 	}
+)
+
+const (
+	mdj_name = "Moustachos du jour"
+	idj_name = "Imberbe du jour"
 )
 
 func (p classement_t) Len() int {
@@ -120,6 +126,42 @@ func init() {
 	tm.next_period_msg = tm.next_time_msg.Sub(t_now)
 }
 
+func clear_all_moustachos_role() {
+	if roles, err := dg.GuildRoles(conf.MoustachosGuildId); err != nil {
+		log.Errorln(err)
+	} else {
+		for _, r := range roles {
+			if r.Name == idj_name || r.Name == mdj_name {
+				dg.GuildRoleDelete(conf.MoustachosGuildId, r.ID)
+			}
+		}
+	}
+}
+
+func create_moustachos_role() {
+	var err error
+	if rm.mdj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
+		panic(err)
+	} else {
+		rm.mdj.Name = mdj_name
+		rm.mdj.Color = 0x32a89e
+		rm.mdj.Hoist = true
+		dg.GuildRoleEdit(conf.MoustachosGuildId, rm.mdj.ID, rm.mdj.Name, rm.mdj.Color, rm.mdj.Hoist, rm.mdj.Permissions, rm.mdj.Mentionable)
+	}
+	if rm.idj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
+		panic(err)
+	} else {
+		rm.idj.Name = idj_name
+		rm.idj.Color = 0xc7ae6f
+		dg.GuildRoleEdit(conf.MoustachosGuildId, rm.idj.ID, rm.idj.Name, rm.idj.Color, rm.idj.Hoist, rm.idj.Permissions, rm.idj.Mentionable)
+	}
+}
+
+func clear_all_and_recreate_moustachos_role() {
+	clear_all_moustachos_role()
+	create_moustachos_role()
+}
+
 func main() {
 	var err error
 	if err, conf = config.GetConf(file); err != nil {
@@ -159,21 +201,7 @@ func main() {
 			log.Errorln("error opening connection,", err)
 			return
 		}
-		if rm.mdj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
-			panic(err)
-		} else {
-			rm.mdj.Name = "Moustachos du jour"
-			rm.mdj.Color = 0x32a89e
-			rm.mdj.Hoist = true
-			dg.GuildRoleEdit(conf.MoustachosGuildId, rm.mdj.ID, rm.mdj.Name, rm.mdj.Color, rm.mdj.Hoist, rm.mdj.Permissions, rm.mdj.Mentionable)
-		}
-		if rm.idj, err = dg.GuildRoleCreate(conf.MoustachosGuildId); err != nil {
-			panic(err)
-		} else {
-			rm.idj.Name = "Imberbe du jour"
-			rm.idj.Color = 0xc7ae6f
-			dg.GuildRoleEdit(conf.MoustachosGuildId, rm.idj.ID, rm.idj.Name, rm.idj.Color, rm.idj.Hoist, rm.idj.Permissions, rm.idj.Mentionable)
-		}
+		clear_all_and_recreate_moustachos_role()
 		go printNextMessageEstimation()
 		go goMoustachos()
 		go manageVoting()
@@ -247,6 +275,7 @@ func trigger(t_now time.Time) {
 			e := classement_item_t{
 				player_id: key,
 				delta:     uint64_delta_player_min,
+				heure:     value.Format("15h04"),
 			}
 			classement[i] = e
 			i++
@@ -258,9 +287,9 @@ func trigger(t_now time.Time) {
 		class_str := [][]string{}
 		for i, value := range classement {
 			u, _ := dg.User(value.player_id)
-			class_str = append(class_str, []string{strconv.Itoa(i), u.Username, strconv.FormatUint(value.delta, 10)})
+			class_str = append(class_str, []string{strconv.Itoa(i), u.Username, value.heure, strconv.FormatUint(value.delta, 10)})
 		}
-		response.Description += create_string_table("Classement du jour", []string{"#", "Personnage", "Δ"}, []int{3, 12, 6}, class_str)
+		response.Description += create_string_table("Classement du jour", []string{"#", "Personnage", "Heure", "Δ"}, []int{3, 12, 7, 6}, class_str)
 		response.Description += "```\n"
 		response.Description += moustachos_str_emote + "\n\n"
 		delete_role()

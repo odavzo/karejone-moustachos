@@ -17,7 +17,7 @@ services:
 
     app:
         image: golang
-        command: go run main.go -f config.json
+        command: go run main.go -f config.json -log_level trace
         environment:
             TZ: "CET"
         depends_on:
