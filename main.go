@@ -241,7 +241,7 @@ func printNextMessageEstimation() {
 }
 
 func update() {
-	for k, v := range lm.list_player_curr_day {
+	for k, _ := range lm.list_player_curr_day {
 		delete(lm.list_player_curr_day, k)
 	}
 	for k, v := range lm.list_player_next_day {
