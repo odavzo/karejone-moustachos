@@ -241,6 +241,9 @@ func printNextMessageEstimation() {
 }
 
 func update() {
+	for k, v := range lm.list_player_curr_day {
+		delete(lm.list_player_curr_day, k)
+	}
 	for k, v := range lm.list_player_next_day {
 		lm.list_player_curr_day[k] = v
 		delete(lm.list_player_next_day, k)
